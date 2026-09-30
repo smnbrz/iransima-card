@@ -164,6 +164,24 @@
     box-shadow:0 6px 16px rgba(37,99,235,.35);
   }
   .route-applink { font-size:12.5px; color:#16a34a; font-weight:bold; text-decoration:none; }
+  /* ===== حالت رانندگی (مثل «بزن بریم» نشان) ===== */
+  #navGoBtn {
+    position:absolute; left:50%; transform:translateX(-50%); bottom:92px; z-index:500;
+    background:#16a34a; color:#fff; border:none; border-radius:18px;
+    font-size:19px; font-weight:bold; font-family:inherit;
+    padding:15px 44px; cursor:pointer;
+    box-shadow:0 10px 24px rgba(22,163,74,.45);
+  }
+  #navGoBtn[hidden] { display:none; }
+  #navGoBtn:active { transform:translateX(-50%) scale(.97); }
+  #navRecenterBtn[hidden] { display:none; }
+  .nav-arrow {
+    width:38px; height:38px; border-radius:50%;
+    background:#2563eb; border:3px solid #fff;
+    box-shadow:0 2px 10px rgba(0,0,0,.4);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .nav-arrow-tri { display:inline-block; color:#fff; font-size:16px; line-height:1; }
 </style>
 </head>
 <body>
@@ -212,10 +230,12 @@
     <a id="navCallBtn" href="tel:+989158914272">📞 تماس با ایران سیما</a>
   </div>
   <div id="navMap"></div>
+  <button id="navGoBtn" type="button" hidden>🚗 بزن بریم</button>
   <div id="navHint">برای مسیریابی پیوسته، این صفحه را باز و صفحه گوشی را روشن نگه دارید.</div>
   <div id="navBar">
     <div id="navStat"></div>
     <a id="navAppLink" href="#" target="_blank" rel="noopener">ادامه در اپ نشان ↗</a>
+    <button class="nav-ctl" id="navRecenterBtn" type="button" hidden>🎯 دنبال کن</button>
     <button class="nav-ctl" id="navVoiceBtn" type="button">🔊</button>
     <button class="nav-ctl" id="navCloseBtn" type="button">✕ پایان</button>
   </div>
@@ -331,6 +351,8 @@ routeResult.addEventListener('click', function (e) {
   var closeBtn  = document.getElementById('navCloseBtn');
   var appLink   = document.getElementById('navAppLink');
   var callBtn   = document.getElementById('navCallBtn');
+  var goBtn     = document.getElementById('navGoBtn');
+  var recenterBtn = document.getElementById('navRecenterBtn');
 
   var nav = null;
 
@@ -413,6 +435,8 @@ routeResult.addEventListener('click', function (e) {
     bannerTxt.textContent = 'در حال بارگذاری نقشه…';
     bannerSub.textContent = '';
     callBtn.style.display = 'none';
+    goBtn.hidden = true;
+    recenterBtn.hidden = true;
     appLink.href = APP_LINK_TMPL.replace('{o}', oLat + ',' + oLng);
     loadSdk().then(function () { window.__navStarting = false; initNav(oLat, oLng); }).catch(function () {
       window.__navStarting = false;
@@ -428,6 +452,9 @@ routeResult.addEventListener('click', function (e) {
       steps: [], routePts: [], lastPos: null,
       lastRouteAt: 0, lastRerouteAt: 0,
       lastSpokenStep: -1, spokenNear: false,
+      announcedNear: false, announcedNow: false,
+      mode: 'preview', followOn: false, heading: 0,
+      oLat: oLat, oLng: oLng,
       legDur: '', legDist: '', arrived: false, firstFit: true
     };
     voiceBtn.textContent = '🔊';
@@ -443,9 +470,17 @@ routeResult.addEventListener('click', function (e) {
       nav.destMarker = L.circleMarker([DEST_LAT, DEST_LNG], {
         radius: 11, color: '#fff', weight: 3, fillColor: '#dc2626', fillOpacity: 1
       }).addTo(nav.map).bindPopup('ایران سیما');
-      nav.userMarker = L.circleMarker([oLat, oLng], {
-        radius: 9, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1
+      nav.userMarker = L.marker([oLat, oLng], {
+        icon: L.divIcon({ className: '', html: '<div class="nav-arrow"><span class="nav-arrow-tri">▲</span></div>', iconSize: [38, 38], iconAnchor: [19, 19] })
       }).addTo(nav.map);
+      try {
+        nav.map.on('dragstart', function () {
+          if (nav && nav.mode === 'driving' && nav.followOn) {
+            nav.followOn = false;
+            recenterBtn.hidden = false;
+          }
+        });
+      } catch (e) {}
       fetchRoute(oLat, oLng, true);
       try {
         nav.watchId = navigator.geolocation.watchPosition(onPos, onPosErr, {
@@ -478,6 +513,12 @@ routeResult.addEventListener('click', function (e) {
         nav.lastRerouteAt = Date.now();
         nav.legDur = (leg.duration && leg.duration.text) || '';
         nav.legDist = (leg.distance && leg.distance.text) || '';
+        if (first) {
+          nav.mode = 'preview';
+          goBtn.hidden = false;
+          bannerTxt.textContent = '🗺 مسیر آماده است';
+          bannerSub.textContent = (nav.legDist ? '📏 ' + nav.legDist : '') + (nav.legDur ? ' • ⏱ ' + nav.legDur : '');
+        }
         if (nav.lastPos) updateGuidance(nav.lastPos);
         else updateGuidance({ lat: oLat, lng: oLng });
         updateStat();
@@ -503,6 +544,8 @@ routeResult.addEventListener('click', function (e) {
     });
     nav.lastSpokenStep = -1;
     nav.spokenNear = false;
+    nav.announcedNear = false;
+    nav.announcedNow = false;
   }
 
   function drawRoute() {
@@ -526,14 +569,28 @@ routeResult.addEventListener('click', function (e) {
     return { step: best < 0 ? 0 : best, dist: bestD };
   }
 
+  function setArrowHeading(h) {
+    try {
+      var el = nav.userMarker && nav.userMarker.getElement ? nav.userMarker.getElement() : null;
+      var tri = el && el.querySelector ? el.querySelector('.nav-arrow-tri') : null;
+      if (tri) tri.style.transform = 'rotate(' + h + 'deg)';
+    } catch (e) {}
+  }
+
   function onPos(pos) {
     if (!nav || nav.arrived) return;
     var lat = pos.coords.latitude, lng = pos.coords.longitude;
     var p = { lat: lat, lng: lng };
     nav.lastPos = p;
+    var h = pos.coords.heading, sp = pos.coords.speed;
+    if (h != null && !isNaN(h) && (sp == null || sp > 0.5)) {
+      nav.heading = h;
+      setArrowHeading(h);
+    }
     try {
       nav.userMarker.setLatLng([lat, lng]);
-      nav.map.panTo([lat, lng], { animate: true });
+      if (nav.mode === 'driving' && nav.followOn) nav.map.panTo([lat, lng], { animate: false });
+      else nav.map.panTo([lat, lng], { animate: true });
     } catch (e) {}
     if (hav(lat, lng, DEST_LAT, DEST_LNG) < 40) { arrive(); return; }
     var ns = nearestStep(lat, lng);
@@ -543,6 +600,15 @@ routeResult.addEventListener('click', function (e) {
 
   function onPosErr() {
     if (nav && !nav.arrived) bannerSub.textContent = 'سیگنال GPS ضعیف است؛ در فضای باز بمانید.';
+  }
+
+  function dirArrow(instr) {
+    instr = instr || '';
+    if (/دوربرگردان|دور بزن/.test(instr)) return '↩';
+    if (/راست/.test(instr)) return '➡';
+    if (/چپ/.test(instr)) return '⬅';
+    if (/مستقیم|ادامه/.test(instr)) return '⬆';
+    return '➤';
   }
 
   function updateGuidance(p) {
@@ -556,20 +622,45 @@ routeResult.addEventListener('click', function (e) {
     }
     var st = nav.steps[next];
     var dMan = hav(p.lat, p.lng, st.startLat, st.startLng);
-    if (dMan < 30) bannerTxt.textContent = '⬅ ' + st.instruction;
-    else bannerTxt.textContent = 'در ' + faDist(dMan) + '، ' + st.instruction;
-    bannerSub.textContent = st.name ? ('خیابان: ' + st.name) : '';
-    var shouldSpeak = false;
-    if (next !== nav.lastSpokenStep) {
-      nav.lastSpokenStep = next;
-      nav.spokenNear = false;
-      shouldSpeak = true;
-    } else if (dMan < 120 && !nav.spokenNear) {
-      nav.spokenNear = true;
-      shouldSpeak = true;
+    var arrow = dirArrow(st.instruction);
+    if (nav.mode === 'driving') {
+      bannerTxt.textContent = arrow + ' در ' + faDist(dMan) + '، ' + st.instruction;
+      bannerSub.textContent = (st.name ? 'خیابان: ' + st.name : '') + (nav.legDur ? ' • ⏱ ' + nav.legDur + ' مانده' : '');
+    } else {
+      bannerTxt.textContent = arrow + ' ' + st.instruction;
+      bannerSub.textContent = (st.name ? 'خیابان: ' + st.name : '') + ' • در ' + faDist(dMan);
     }
-    if (shouldSpeak) speak(dMan < 30 ? st.instruction : 'در ' + faDist(dMan) + ' دیگر، ' + st.instruction);
+    if (nav.mode === 'driving') {
+      if (next !== nav.lastSpokenStep) {
+        nav.lastSpokenStep = next;
+        nav.announcedNear = false;
+        nav.announcedNow = false;
+        speak('در ' + faDist(dMan) + '، ' + st.instruction);
+      } else if (dMan < 150 && !nav.announcedNear) {
+        nav.announcedNear = true;
+        speak('در ' + faDist(dMan) + ' دیگر، ' + st.instruction);
+      } else if (dMan < 40 && !nav.announcedNow) {
+        nav.announcedNow = true;
+        speak(st.instruction);
+      }
+    }
     updateStat();
+  }
+
+  function enterDriving() {
+    if (!nav || nav.mode === 'driving' || !nav.steps.length) return;
+    nav.mode = 'driving';
+    nav.followOn = true;
+    goBtn.hidden = true;
+    recenterBtn.hidden = true;
+    track('click_livenav_go');
+    try {
+      if (nav.lastPos) nav.map.panTo([nav.lastPos.lat, nav.lastPos.lng], { animate: false });
+      nav.map.setZoom(17, { animate: true });
+    } catch (e) {}
+    requestWakeLock();
+    speak('مسیریابی آغاز شد. موفق باشید.');
+    updateGuidance(nav.lastPos || { lat: nav.oLat, lng: nav.oLng });
   }
 
   function updateStat() {
@@ -591,6 +682,8 @@ routeResult.addEventListener('click', function (e) {
   function arrive() {
     if (!nav || nav.arrived) return;
     nav.arrived = true;
+    goBtn.hidden = true;
+    recenterBtn.hidden = true;
     bannerTxt.textContent = '🎉 رسیدید به ایران سیما!';
     bannerSub.textContent = 'خوش آمدید 🌹 برای هماهنگی، تماس بگیرید.';
     callBtn.style.display = 'block';
@@ -612,6 +705,8 @@ routeResult.addEventListener('click', function (e) {
     try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
     try { if (nav.wakeLock) nav.wakeLock.release(); } catch (e) {}
     try { if (nav.map) nav.map.remove(); } catch (e) {}
+    goBtn.hidden = true;
+    recenterBtn.hidden = true;
     nav = null;
     window.__navStarting = false;
     overlay.hidden = true;
@@ -622,6 +717,13 @@ routeResult.addEventListener('click', function (e) {
     if (nav && !document.hidden) requestWakeLock();
   });
 
+  goBtn.addEventListener('click', enterDriving);
+  recenterBtn.addEventListener('click', function () {
+    if (!nav) return;
+    nav.followOn = true;
+    recenterBtn.hidden = true;
+    try { if (nav.lastPos) nav.map.panTo([nav.lastPos.lat, nav.lastPos.lng], { animate: true }); } catch (e) {}
+  });
   voiceBtn.addEventListener('click', function () {
     if (!nav) return;
     nav.voice = !nav.voice;
