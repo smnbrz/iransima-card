@@ -192,6 +192,8 @@ var routePanel = document.getElementById('routePanel');
 var geoBtn = document.getElementById('geoBtn');
 var routeResult = document.getElementById('routeResult');
 var routeErr = document.getElementById('routeErr');
+var isIOSNav = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 routeBtn.addEventListener('click', function () {
   var on = document.body.classList.toggle('routing');
@@ -204,8 +206,8 @@ geoBtn.addEventListener('click', function () {
   routeErr.textContent = '';
   routeResult.innerHTML = 'در حال تعیین موقعیت…';
   if (!navigator.geolocation) {
+    routeResult.innerHTML = '<a href="https://nshn.ir/?lat=' + DEST_LAT + '&lng=' + DEST_LNG + '" target="_blank" rel="noopener">📍 نمایش مقصد روی نقشه نشان</a>';
     routeErr.textContent = 'مرورگر شما از موقعیت مکانی پشتیبانی نمی‌کند.';
-    routeResult.innerHTML = '';
     return;
   }
   navigator.geolocation.getCurrentPosition(function (pos) {
@@ -220,17 +222,29 @@ geoBtn.addEventListener('click', function () {
         if (!leg) throw new Error('no route');
         var dur = (leg.duration && leg.duration.text) || '';
         var dist = (leg.distance && leg.distance.text) || '';
-        routeResult.innerHTML = '🚗 حدود ' + dur + ' تا ما فاصله دارید (' + dist + ')<br>'
-          + '<a href="https://nshn.ir/?lat=' + DEST_LAT + '&lng=' + DEST_LNG + '" target="_blank" rel="noopener">ادامه مسیر در اپ نشان ↗</a>';
+        var webNav = 'https://nshn.ir?origin=' + oLat + ',' + oLng + '&destination=' + DEST_LAT + ',' + DEST_LNG + '&vehicle=d';
+        var liveNav = isIOSNav
+          ? 'neshan://?origin=' + oLat + ',' + oLng + '&destination=' + DEST_LAT + ',' + DEST_LNG + '&vehicle=d'
+          : webNav;
+        var html = '🚗 حدود ' + dur + ' تا ما فاصله دارید (' + dist + ')<br>'
+          + '<a class="route-btn" data-nav style="display:inline-block;margin-top:10px;text-decoration:none" href="' + liveNav + '">🧭 شروع مسیریابی زنده در نشان</a>'
+          + '<br><span style="font-size:12px;font-weight:normal;color:#6b7280">نشان باز می‌شود؛ با زدن «شروع» در نشان، مسیریابی لحظه‌ای با ترافیک آنلاین و راهنمای صوتی آغاز می‌شود.</span>';
+        if (isIOSNav) html += '<br><span style="font-size:12px;font-weight:normal">اگر اپ باز نشد: <a href="' + webNav + '">باز کردن در مرورگر</a></span>';
+        routeResult.innerHTML = html;
       })
       .catch(function () {
         routeResult.innerHTML = '';
         routeErr.textContent = 'مسیریابی فعلاً در دسترس نیست. لطفاً دوباره تلاش کنید.';
       });
   }, function () {
-    routeResult.innerHTML = '';
-    routeErr.textContent = 'برای مسیریابی، دسترسی به موقعیت مکانی را فعال کنید.';
+    routeResult.innerHTML = '<a href="https://nshn.ir/?lat=' + DEST_LAT + '&lng=' + DEST_LNG + '" target="_blank" rel="noopener">📍 نمایش مقصد روی نقشه نشان</a>'
+      + '<br><span style="font-size:12px">برای مسیریابی خودکار، دسترسی به موقعیت مکانی را فعال کنید.</span>';
+    routeErr.textContent = '';
   });
+});
+routeResult.addEventListener('click', function (e) {
+  var a = e.target.closest ? e.target.closest('a[data-nav]') : null;
+  if (a) { try { if (typeof gtag === 'function') gtag('event', 'click_navigate', { event_category: 'card' }); } catch (err) {} }
 });
 </script>
 <script>
