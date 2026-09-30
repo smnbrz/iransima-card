@@ -130,6 +130,40 @@
   body.routing .loc { border-top:none; padding-top:0; margin-top:10px; }
   body.routing .mapstrip img { height:44vh; min-height:300px; }
   body.routing .route-panel { display:block; }
+
+  /* ===== مسیریابی زنده داخل کارت (اورلی تمام‌صفحه) ===== */
+  #navOverlay { position:fixed; inset:0; z-index:1000; background:#fff; display:flex; flex-direction:column; }
+  #navOverlay[hidden] { display:none; }
+  #navBanner { background:#1f2937; color:#fff; padding:12px 14px 10px; }
+  #navBannerTxt { font-size:17px; font-weight:bold; line-height:1.9; }
+  #navBannerSub { font-size:12.5px; color:#d1d5db; margin-top:2px; line-height:1.9; }
+  #navCallBtn {
+    display:none; margin-top:8px; text-decoration:none; text-align:center;
+    background:#16a34a; color:#fff; font-weight:bold; font-size:15px;
+    border-radius:12px; padding:10px;
+  }
+  #navMap { flex:1; min-height:0; z-index:0; background:#e5e7eb; }
+  #navBar {
+    display:flex; align-items:center; gap:8px;
+    padding:10px 12px; background:#fffdf8; border-top:1px solid #e9e2d4;
+  }
+  #navStat { flex:1; font-size:13px; font-weight:bold; color:#374151; text-align:right; line-height:1.9; }
+  .nav-ctl {
+    border:1.5px solid #d1d5db; background:#fff; border-radius:12px;
+    padding:9px 12px; font-size:14px; font-weight:bold; cursor:pointer;
+    font-family:inherit; color:#374151; white-space:nowrap;
+  }
+  #navCloseBtn { background:#b91c1c; border-color:#b91c1c; color:#fff; }
+  #navAppLink { font-size:12px; color:#16a34a; font-weight:bold; text-decoration:none; white-space:nowrap; }
+  #navHint { font-size:11px; color:#9ca3af; text-align:center; padding:6px 10px; background:#fffdf8; line-height:1.8; }
+  .livenav-btn {
+    display:inline-block; margin-top:10px; text-decoration:none;
+    font-size:16px; font-weight:bold; color:#fff;
+    background:#2563eb; border:none; border-radius:14px;
+    padding:13px 26px; cursor:pointer; font-family:inherit;
+    box-shadow:0 6px 16px rgba(37,99,235,.35);
+  }
+  .route-applink { font-size:12.5px; color:#16a34a; font-weight:bold; text-decoration:none; }
 </style>
 </head>
 <body>
@@ -168,6 +202,23 @@
   </div>
 
   <div class="foot">تعمیر در محل شما — سریع و تمیز</div>
+</div>
+
+<!-- ===== اورلی مسیریابی زنده ===== -->
+<div id="navOverlay" hidden>
+  <div id="navBanner">
+    <div id="navBannerTxt">در حال آماده‌سازی…</div>
+    <div id="navBannerSub"></div>
+    <a id="navCallBtn" href="tel:+989158914272">📞 تماس با ایران سیما</a>
+  </div>
+  <div id="navMap"></div>
+  <div id="navHint">برای مسیریابی پیوسته، این صفحه را باز و صفحه گوشی را روشن نگه دارید.</div>
+  <div id="navBar">
+    <div id="navStat"></div>
+    <a id="navAppLink" href="#" target="_blank" rel="noopener">ادامه در اپ نشان ↗</a>
+    <button class="nav-ctl" id="navVoiceBtn" type="button">🔊</button>
+    <button class="nav-ctl" id="navCloseBtn" type="button">✕ پایان</button>
+  </div>
 </div>
 
 <script>
@@ -226,10 +277,11 @@ geoBtn.addEventListener('click', function () {
         var liveNav = isIOSNav
           ? 'neshan://?origin=' + oLat + ',' + oLng + '&destination=' + DEST_LAT + ',' + DEST_LNG + '&vehicle=d'
           : webNav;
+        window.__lastOrigin = { lat: oLat, lng: oLng };
         var html = '🚗 حدود ' + dur + ' تا ما فاصله دارید (' + dist + ')<br>'
-          + '<a class="route-btn" data-nav style="display:inline-block;margin-top:10px;text-decoration:none" href="' + liveNav + '">🧭 شروع مسیریابی زنده در نشان</a>'
-          + '<br><span style="font-size:12px;font-weight:normal;color:#6b7280">نشان باز می‌شود؛ با زدن «شروع» در نشان، مسیریابی لحظه‌ای با ترافیک آنلاین و راهنمای صوتی آغاز می‌شود.</span>';
-        if (isIOSNav) html += '<br><span style="font-size:12px;font-weight:normal">اگر اپ باز نشد: <a href="' + webNav + '">باز کردن در مرورگر</a></span>';
+          + '<button class="livenav-btn" data-livenav type="button">🧭 شروع مسیریابی زنده</button>'
+          + '<br><span style="font-size:12px;font-weight:normal;color:#6b7280">مسیریابی قدم‌به‌قدم با ترافیک لحظه‌ای، همین‌جا داخل کارت — بدون نیاز به اپ دیگر.</span>'
+          + '<br><a class="route-applink" data-nav href="' + liveNav + '">باز کردن در اپ نشان ↗</a>';
         routeResult.innerHTML = html;
       })
       .catch(function () {
@@ -261,6 +313,331 @@ routeResult.addEventListener('click', function (e) {
   on('smsBtn', 'click_sms');
   on('routeBtn', 'click_route');
   on('geoBtn', 'click_geolocate');
+})();
+</script>
+<script>
+/* ===== مسیریابی زنده داخل کارت (نقشه نشان + GPS زنده + قدم‌به‌قدم فارسی) ===== */
+(function () {
+  var SDK_CSS = 'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.css';
+  var SDK_JS  = 'https://static.neshan.org/sdk/leaflet/v1.9.4/neshan-sdk/v1.0.8/index.js';
+  var APP_LINK_TMPL = 'https://nshn.ir?origin={o}&destination=' + DEST_LAT + ',' + DEST_LNG + '&vehicle=d';
+
+  var overlay   = document.getElementById('navOverlay');
+  var bannerTxt = document.getElementById('navBannerTxt');
+  var bannerSub = document.getElementById('navBannerSub');
+  var navStat   = document.getElementById('navStat');
+  var voiceBtn  = document.getElementById('navVoiceBtn');
+  var closeBtn  = document.getElementById('navCloseBtn');
+  var appLink   = document.getElementById('navAppLink');
+  var callBtn   = document.getElementById('navCallBtn');
+
+  var nav = null;
+
+  function faNum(n) {
+    return String(n).replace(/[0-9]/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'[+d]; });
+  }
+  function faDist(m) {
+    m = Math.round(m);
+    if (m < 1000) return faNum(m) + ' متر';
+    return faNum((m / 1000).toFixed(1).replace('.', '٫')) + ' کیلومتر';
+  }
+  function hav(lat1, lng1, lat2, lng2) {
+    var R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLng = (lng2 - lng1) * Math.PI / 180;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+      + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+      * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+  function decodePolyline(str) {
+    var index = 0, lat = 0, lng = 0, coords = [];
+    while (index < str.length) {
+      var b, shift = 0, result = 0;
+      do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+      shift = 0; result = 0;
+      do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+      coords.push([lat / 1e5, lng / 1e5]);
+    }
+    return coords;
+  }
+  function track(name) {
+    try { if (typeof gtag === 'function') gtag('event', name, { event_category: 'card' }); } catch (e) {}
+  }
+  function speak(text) {
+    if (!nav || !nav.voice) return;
+    try {
+      var synth = window.speechSynthesis;
+      if (!synth) return;
+      synth.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = 'fa-IR';
+      u.rate = 0.95;
+      synth.speak(u);
+    } catch (e) {}
+  }
+  function loadSdk() {
+    if (window.__neshanSdkPromise) return window.__neshanSdkPromise;
+    window.__neshanSdkPromise = new Promise(function (resolve, reject) {
+      var done = false;
+      function ok() { if (!done) { done = true; resolve(); } }
+      function fail() { if (!done) { done = true; reject(new Error('sdk')); } }
+      var link = document.createElement('link');
+      link.rel = 'stylesheet'; link.href = SDK_CSS;
+      document.head.appendChild(link);
+      var s = document.createElement('script');
+      s.src = SDK_JS;
+      s.onload = ok; s.onerror = fail;
+      document.head.appendChild(s);
+      setTimeout(fail, 25000);
+    });
+    return window.__neshanSdkPromise;
+  }
+  function requestWakeLock() {
+    try {
+      if (nav && 'wakeLock' in navigator) {
+        navigator.wakeLock.request('screen').then(function (wl) {
+          if (nav) nav.wakeLock = wl;
+        }).catch(function () {});
+      }
+    } catch (e) {}
+  }
+
+  function startLiveNav(oLat, oLng) {
+    if (nav || window.__navStarting) return;
+    window.__navStarting = true;
+    track('click_livenav_start');
+    overlay.hidden = false;
+    try { document.body.style.overflow = 'hidden'; } catch (e) {}
+    bannerTxt.textContent = 'در حال بارگذاری نقشه…';
+    bannerSub.textContent = '';
+    callBtn.style.display = 'none';
+    appLink.href = APP_LINK_TMPL.replace('{o}', oLat + ',' + oLng);
+    loadSdk().then(function () { window.__navStarting = false; initNav(oLat, oLng); }).catch(function () {
+      window.__navStarting = false;
+      bannerTxt.textContent = 'نقشه بارگذاری نشد';
+      bannerSub.textContent = 'اتصال اینترنت را بررسی کنید، یا از «ادامه در اپ نشان» استفاده کنید.';
+    });
+  }
+
+  function initNav(oLat, oLng) {
+    nav = {
+      voice: true, watchId: null, tickTimer: null, wakeLock: null,
+      map: null, userMarker: null, routeLine: null, destMarker: null,
+      steps: [], routePts: [], lastPos: null,
+      lastRouteAt: 0, lastRerouteAt: 0,
+      lastSpokenStep: -1, spokenNear: false,
+      legDur: '', legDist: '', arrived: false, firstFit: true
+    };
+    voiceBtn.textContent = '🔊';
+    requestAnimationFrame(function () {
+      if (!nav) return;
+      try {
+        nav.map = new L.Map('navMap', { key: NESHAN_KEY, maptype: 'dreamy', center: [oLat, oLng], zoom: 16 });
+      } catch (e) {
+        bannerTxt.textContent = 'خطا در بارگذاری نقشه';
+        bannerSub.textContent = 'اگر دامنه سایت در پنل نشان مجاز نشده باشد، نقشه نمایش داده نمی‌شود.';
+        return;
+      }
+      nav.destMarker = L.circleMarker([DEST_LAT, DEST_LNG], {
+        radius: 11, color: '#fff', weight: 3, fillColor: '#dc2626', fillOpacity: 1
+      }).addTo(nav.map).bindPopup('ایران سیما');
+      nav.userMarker = L.circleMarker([oLat, oLng], {
+        radius: 9, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1
+      }).addTo(nav.map);
+      fetchRoute(oLat, oLng, true);
+      try {
+        nav.watchId = navigator.geolocation.watchPosition(onPos, onPosErr, {
+          enableHighAccuracy: true, maximumAge: 3000, timeout: 20000
+        });
+      } catch (e) {
+        bannerSub.textContent = 'دسترسی به موقعیت مکانی ممکن نشد.';
+      }
+      requestWakeLock();
+      nav.tickTimer = setInterval(function () {
+        if (nav && nav.lastPos && !nav.arrived) maybeRefresh(nav.lastPos);
+      }, 20000);
+    });
+  }
+
+  function fetchRoute(oLat, oLng, first) {
+    var url = 'https://api.neshan.org/v4/direction?type=car'
+      + '&origin=' + oLat + ',' + oLng
+      + '&destination=' + DEST_LAT + ',' + DEST_LNG;
+    fetch(url, { headers: { 'Api-Key': NESHAN_KEY } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!nav) return;
+        var route = data && data.routes && data.routes[0];
+        var leg = route && route.legs && route.legs[0];
+        if (!leg || !leg.steps || !leg.steps.length) throw new Error('no route');
+        buildSteps(leg.steps);
+        drawRoute();
+        nav.lastRouteAt = Date.now();
+        nav.lastRerouteAt = Date.now();
+        nav.legDur = (leg.duration && leg.duration.text) || '';
+        nav.legDist = (leg.distance && leg.distance.text) || '';
+        if (nav.lastPos) updateGuidance(nav.lastPos);
+        else updateGuidance({ lat: oLat, lng: oLng });
+        updateStat();
+      })
+      .catch(function () {
+        if (first && nav) {
+          bannerTxt.textContent = 'دریافت مسیر ناموفق بود';
+          bannerSub.textContent = 'اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.';
+        }
+      });
+  }
+
+  function buildSteps(apiSteps) {
+    nav.steps = apiSteps.map(function (s) {
+      var pts = [];
+      try { pts = decodePolyline(s.polyline || ''); } catch (e) { pts = []; }
+      var sl = s.start_location || [0, 0];
+      return { instruction: s.instruction || '', name: s.name || '', pts: pts, startLat: sl[1], startLng: sl[0] };
+    });
+    nav.routePts = [];
+    nav.steps.forEach(function (st, i) {
+      st.pts.forEach(function (p) { nav.routePts.push({ lat: p[0], lng: p[1], step: i }); });
+    });
+    nav.lastSpokenStep = -1;
+    nav.spokenNear = false;
+  }
+
+  function drawRoute() {
+    var latlngs = nav.routePts.map(function (p) { return [p.lat, p.lng]; });
+    if (!latlngs.length) return;
+    if (nav.routeLine) { try { nav.map.removeLayer(nav.routeLine); } catch (e) {} }
+    nav.routeLine = L.polyline(latlngs, { color: '#2563eb', weight: 6, opacity: 0.85 }).addTo(nav.map);
+    if (nav.firstFit) {
+      nav.firstFit = false;
+      try { nav.map.fitBounds(nav.routeLine.getBounds().pad(0.25)); } catch (e) {}
+    }
+  }
+
+  function nearestStep(lat, lng) {
+    var best = -1, bestD = Infinity;
+    for (var i = 0; i < nav.routePts.length; i++) {
+      var p = nav.routePts[i];
+      var d = hav(lat, lng, p.lat, p.lng);
+      if (d < bestD) { bestD = d; best = p.step; }
+    }
+    return { step: best < 0 ? 0 : best, dist: bestD };
+  }
+
+  function onPos(pos) {
+    if (!nav || nav.arrived) return;
+    var lat = pos.coords.latitude, lng = pos.coords.longitude;
+    var p = { lat: lat, lng: lng };
+    nav.lastPos = p;
+    try {
+      nav.userMarker.setLatLng([lat, lng]);
+      nav.map.panTo([lat, lng], { animate: true });
+    } catch (e) {}
+    if (hav(lat, lng, DEST_LAT, DEST_LNG) < 40) { arrive(); return; }
+    var ns = nearestStep(lat, lng);
+    if (ns.dist > 80) maybeReroute(lat, lng);
+    updateGuidance(p);
+  }
+
+  function onPosErr() {
+    if (nav && !nav.arrived) bannerSub.textContent = 'سیگنال GPS ضعیف است؛ در فضای باز بمانید.';
+  }
+
+  function updateGuidance(p) {
+    if (!nav || !nav.steps.length) return;
+    var ns = nearestStep(p.lat, p.lng);
+    var next = ns.step + 1;
+    if (next >= nav.steps.length) {
+      bannerTxt.textContent = 'نزدیک مقصد هستید 🏁';
+      bannerSub.textContent = 'به «ایران سیما» نزدیک می‌شوید.';
+      return;
+    }
+    var st = nav.steps[next];
+    var dMan = hav(p.lat, p.lng, st.startLat, st.startLng);
+    if (dMan < 30) bannerTxt.textContent = '⬅ ' + st.instruction;
+    else bannerTxt.textContent = 'در ' + faDist(dMan) + '، ' + st.instruction;
+    bannerSub.textContent = st.name ? ('خیابان: ' + st.name) : '';
+    var shouldSpeak = false;
+    if (next !== nav.lastSpokenStep) {
+      nav.lastSpokenStep = next;
+      nav.spokenNear = false;
+      shouldSpeak = true;
+    } else if (dMan < 120 && !nav.spokenNear) {
+      nav.spokenNear = true;
+      shouldSpeak = true;
+    }
+    if (shouldSpeak) speak(dMan < 30 ? st.instruction : 'در ' + faDist(dMan) + ' دیگر، ' + st.instruction);
+    updateStat();
+  }
+
+  function updateStat() {
+    if (!nav) return;
+    navStat.textContent = (nav.legDur ? '⏱ حدود ' + nav.legDur + ' مانده' : '') + (nav.legDist ? ' • 📏 ' + nav.legDist : '');
+  }
+
+  function maybeReroute(lat, lng) {
+    var now = Date.now();
+    if (now - nav.lastRerouteAt < 25000) return;
+    fetchRoute(lat, lng, false);
+  }
+
+  function maybeRefresh(p) {
+    var now = Date.now();
+    if (now - nav.lastRouteAt > 90000) fetchRoute(p.lat, p.lng, false);
+  }
+
+  function arrive() {
+    if (!nav || nav.arrived) return;
+    nav.arrived = true;
+    bannerTxt.textContent = '🎉 رسیدید به ایران سیما!';
+    bannerSub.textContent = 'خوش آمدید 🌹 برای هماهنگی، تماس بگیرید.';
+    callBtn.style.display = 'block';
+    speak('به مقصد رسیدید. ایران سیما.');
+    updateStat();
+    stopWatch();
+  }
+
+  function stopWatch() {
+    if (!nav) return;
+    if (nav.watchId != null) { try { navigator.geolocation.clearWatch(nav.watchId); } catch (e) {} nav.watchId = null; }
+    if (nav.tickTimer) { clearInterval(nav.tickTimer); nav.tickTimer = null; }
+  }
+
+  function stopLiveNav() {
+    if (!nav) return;
+    track('click_livenav_end');
+    stopWatch();
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+    try { if (nav.wakeLock) nav.wakeLock.release(); } catch (e) {}
+    try { if (nav.map) nav.map.remove(); } catch (e) {}
+    nav = null;
+    window.__navStarting = false;
+    overlay.hidden = true;
+    try { document.body.style.overflow = ''; } catch (e) {}
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (nav && !document.hidden) requestWakeLock();
+  });
+
+  voiceBtn.addEventListener('click', function () {
+    if (!nav) return;
+    nav.voice = !nav.voice;
+    voiceBtn.textContent = nav.voice ? '🔊' : '🔇';
+    if (!nav.voice) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {} }
+  });
+  closeBtn.addEventListener('click', stopLiveNav);
+  appLink.addEventListener('click', function () { track('click_navigate'); });
+
+  var routeResult = document.getElementById('routeResult');
+  if (routeResult) routeResult.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-livenav]') : null;
+    if (b && window.__lastOrigin) startLiveNav(window.__lastOrigin.lat, window.__lastOrigin.lng);
+  });
+
+  window.__startLiveNav = startLiveNav;
+  window.__stopLiveNav = stopLiveNav;
 })();
 </script>
 </body>
